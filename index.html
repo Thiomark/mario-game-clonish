@@ -11,7 +11,7 @@
             background-color: #202020;
             overflow: hidden;
             font-family: 'Courier New', Courier, monospace;
-            touch-action: none; /* Prevent mobile scrolling */
+            touch-action: none;
         }
 
         #game-container {
@@ -21,16 +21,15 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            background: #5c94fc; /* Sky Blue */
+            background: #5c94fc;
         }
 
         canvas {
-            image-rendering: pixelated; /* Crisp pixels */
+            image-rendering: pixelated;
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
             background-color: #5c94fc;
         }
 
-        /* UI Overlay */
         #ui-layer {
             position: absolute;
             top: 0;
@@ -55,9 +54,8 @@
             box-sizing: border-box;
         }
 
-        /* Touch Controls */
         #controls {
-            display: none; /* Hidden on desktop by default */
+            display: none;
             width: 100%;
             height: 150px;
             pointer-events: auto;
@@ -124,7 +122,7 @@
 
         h1 { font-size: 40px; margin-bottom: 10px; text-shadow: 4px 4px 0 #E70012; }
         p { font-size: 18px; margin-bottom: 20px; max-width: 600px; line-height: 1.4; }
-        
+
         .btn {
             padding: 15px 30px;
             font-size: 20px;
@@ -138,7 +136,7 @@
             min-width: 200px;
         }
         .btn:active { transform: translateY(4px); box-shadow: none; }
-        .btn-ai { background: #673AB7; box-shadow: 0 4px 0 #311B92; } /* Purple for AI */
+        .btn-ai { background: #673AB7; box-shadow: 0 4px 0 #311B92; }
 
         #ai-controls {
             margin-top: 20px;
@@ -172,14 +170,13 @@
         }
 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
     </style>
 </head>
 <body>
 
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
-    
+
     <div id="ui-layer">
         <div class="hud">
             <div>SCORE <br><span id="scoreVal">000000</span></div>
@@ -198,13 +195,12 @@
         </div>
     </div>
 
-    <!-- START SCREEN -->
     <div id="start-screen">
         <h1>SUPER PLUMBER</h1>
         <p>Arrow Keys to Move • Space to Jump</p>
-        
+
         <button class="btn" onclick="startGame(false)">PLAY CLASSIC</button>
-        
+
         <div id="ai-controls">
             <div style="margin-bottom: 5px; color: #B39DDB;">✨ Create Custom Level with Gemini ✨</div>
             <input type="text" id="ai-prompt" placeholder="e.g. 'A hard level with lots of fire bars'">
@@ -214,7 +210,6 @@
         </div>
     </div>
 
-    <!-- MESSAGE OVERLAY (Win/Loss/Narrator) -->
     <div id="msg-overlay">
         <h1 id="msg-title">GAME OVER</h1>
         <p id="msg-text">...</p>
@@ -223,20 +218,72 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <script>
-/**
- * GEMINI API INTEGRATION
- */
-const apiKey = ""; // Set by environment
+const TILE_SIZE = 32;
+const GRAVITY_Y = 1200;
+const MOVE_SPEED = 190;
+const JUMP_SPEED = -480;
+
+const CLASSIC_LEVEL = `
+................................................................................................................................
+....................................................................................................F.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+................................................................................................................................
+....................................................................................................f.....
+..............................Q......................................Q.Q.Q................Q.....................................
+............................................................................................S.......f.....
+..............................B......................................B.B.B................B.....................................
+...........................................................................................SS.......f.....
+............................QB.BQ...................................BB.B.BB.....................................................
+........................SSS...............................................................SSS.......f.....
+................................................................................................................................
+.......................SSSS..............................................................SSSS.......f.....
+.........................................e.................................e........e.............................e...........e.
+..e...................SSSSS.............................................................SSSSS.......f.....
+................................................................................................................................
+.....................SSSSSS............................................................SSSSSS.......f.....
+........................................lr........................lr..........................lr................................
+....................SSSSSSS...........................................................SSSSSSS.......f.....
+........................................LR........................LR..........................LR................................
+...................SSSSSSSS..........................................................SSSSSSSS.......f.....
+GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGG
+GGGGGGGGGGGGGGGGGGGGGGGGGGG..........................................................GGGGGGGGGGGGGGGGGGGGG
+GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGG
+GGGGGGGGGGGGGGGGGGGGGGGGGGG..........................................................GGGGGGGGGGGGGGGGGGGGG
+`;
+
+let apiKey = "";
+let currentLevelString = CLASSIC_LEVEL;
+let score = 0;
+let timeLeft = 400;
+let gameState = 'START';
+let phaserGame;
+
+const keyState = { left: false, right: false, jump: false };
+
+function updateHUD() {
+    document.getElementById('scoreVal').textContent = score.toString().padStart(6, '0');
+    document.getElementById('timeVal').textContent = Math.max(0, Math.floor(timeLeft)).toString();
+}
 
 async function callGemini(userPrompt, systemInstruction) {
-    if (!apiKey) {
-        console.error("API Key missing");
-        return null;
-    }
+    if (!apiKey) return null;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-    
     const payload = {
         contents: [{ parts: [{ text: userPrompt }] }],
         systemInstruction: { parts: [{ text: systemInstruction }] }
@@ -250,11 +297,10 @@ async function callGemini(userPrompt, systemInstruction) {
         });
 
         if (!response.ok) throw new Error(`API Error: ${response.status}`);
-        
         const data = await response.json();
         return data.candidates?.[0]?.content?.parts?.[0]?.text;
     } catch (error) {
-        console.error("Gemini API Failed:", error);
+        console.error('Gemini API Failed:', error);
         return null;
     }
 }
@@ -266,10 +312,10 @@ async function generateAILevel(theme) {
     text.style.display = 'block';
 
     const systemPrompt = `
-    You are a level designer for a 2D Mario-style platformer. 
+    You are a level designer for a 2D Mario-style platformer.
     You MUST output a valid level grid using ONLY the characters in the legend below.
     The output must be a single text block with no markdown formatting.
-    
+
     LEGEND:
     . = Air (Empty space)
     G = Ground block
@@ -279,7 +325,7 @@ async function generateAILevel(theme) {
     l,r,L,R = Pipe pieces (l=top-left, r=top-right, L=btm-left, R=btm-right). Must always be placed in a 2x2 square.
     S = Unbreakable Stone (used for stairs)
     F,f = Flag (F=top ball, f=pole). MUST be at the very end.
-    
+
     CONSTRAINTS:
     1. The grid MUST be exactly 19 rows high.
     2. The grid should be between 150 and 200 columns wide.
@@ -287,887 +333,314 @@ async function generateAILevel(theme) {
     4. Start the player area (left side) relatively safe.
     5. Place a Flag pole (F on top of f's) at the far right.
     6. Ensure the level is playable (jumps are possible).
-    
+
     Output ONLY the raw string grid.
     `;
 
     const prompt = `Generate a level with the following theme/description: "${theme}".`;
-
     const result = await callGemini(prompt, systemPrompt);
-    
+
     spinner.style.display = 'none';
     text.style.display = 'none';
 
     if (result) {
-        // Clean up markdown if present
         let cleanResult = result.replace(/```/g, '').trim();
         return cleanResult;
     } else {
-        alert("AI Generation failed. Loading Classic World 1-1.");
+        alert('AI Generation failed. Loading Classic World 1-1.');
         return null;
     }
 }
 
 async function generateNarratorComment(type, context) {
     const systemPrompt = `
-    You are a snarky, retro video game announcer/narrator. 
-    Keep it short (max 1 sentence). 
-    Be funny but encouraging. 
-    If the player died, roast them slightly. 
+    You are a snarky, retro video game announcer/narrator.
+    Keep it short (max 1 sentence).
+    Be funny but encouraging.
+    If the player died, roast them slightly.
     If they won, congratulate them with 80s slang.
     `;
-    
-    const prompt = type === 'die' 
-        ? `The player just died by ${context}. Roast them.` 
+
+    const prompt = type === 'die'
+        ? `The player just died by ${context}. Roast them.`
         : `The player just beat the level with score ${context}. Congratulate them.`;
 
-    // Non-blocking call - game state handles the UI
     return await callGemini(prompt, systemPrompt);
 }
 
-/**
- * GAME ENGINE & LOGIC
- */
-
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// Game Constants
-const TILE_SIZE = 32;
-// REBALANCED PHYSICS FOR 60FPS FIXED STEP
-const GRAVITY = 0.5; 
-const FRICTION = 0.85; 
-const ACCEL = 0.5; 
-const MAX_SPEED = 6;
-const JUMP_FORCE = -13; 
-const BOUNCE_FORCE = -8;
-
-// Audio Context
-let audioCtx;
-let soundEnabled = false;
-
-// Game State
-let gameState = 'START'; 
-let score = 0;
-let timeLeft = 400;
-let cameraX = 0;
-let currentLevelString = "";
-
-// Timing Globals
-let lastTime = 0;
-let accumulator = 0;
-const STEP = 1 / 60; 
-
-// Inputs
-const keys = {
-    right: false,
-    left: false,
-    up: false,
-    jumpPressed: false // True only on the frame the button is pressed
-};
-
-// --- AUDIO SYSTEM ---
-const Sound = {
-    play: (type) => {
-        if (!soundEnabled || !audioCtx) return;
-        
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        const now = audioCtx.currentTime;
-
-        if (type === 'jump') {
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(150, now);
-            osc.frequency.linearRampToValueAtTime(300, now + 0.1);
-            gain.gain.setValueAtTime(0.05, now);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-            osc.start(now);
-            osc.stop(now + 0.1);
-        } else if (type === 'stomp') {
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(150, now);
-            osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
-            gain.gain.setValueAtTime(0.1, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.1);
-            osc.start(now);
-            osc.stop(now + 0.1);
-        } else if (type === 'coin') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(900, now);
-            osc.frequency.setValueAtTime(1200, now + 0.1);
-            gain.gain.setValueAtTime(0.1, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.3);
-            osc.start(now);
-            osc.stop(now + 0.3);
-        } else if (type === 'die') {
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(300, now);
-            osc.frequency.linearRampToValueAtTime(100, now + 0.5);
-            gain.gain.setValueAtTime(0.2, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.5);
-            osc.start(now);
-            osc.stop(now + 0.5);
-        }
-    }
-};
-
-// --- ENTITIES ---
-
-class Player {
+class MainScene extends Phaser.Scene {
     constructor() {
-        this.w = TILE_SIZE - 4; 
-        this.h = TILE_SIZE; 
-        this.x = 100;
-        this.y = 100;
-        this.vx = 0;
-        this.vy = 0;
-        this.grounded = false;
-        this.dead = false;
-        this.facingRight = true;
-        this.animTimer = 0;
-        this.winAnim = false;
+        super('MainScene');
+        this.levelRows = [];
+        this.platforms = null;
+        this.flagPole = null;
+        this.goombas = null;
+        this.player = null;
+        this.cursors = null;
+        this.jumpHeld = false;
+    }
+
+    create(data) {
+        this.levelRows = (data.levelString || CLASSIC_LEVEL).trim().split('\n');
+        this.platforms = this.physics.add.staticGroup();
+        this.flagPole = this.physics.add.staticGroup();
+        this.goombas = this.physics.add.group();
+        this.cursors = this.input.keyboard.createCursorKeys();
+
+        const cols = this.levelRows[0]?.length || 1;
+        const height = this.levelRows.length || 1;
+        this.physics.world.setBounds(0, 0, cols * TILE_SIZE, height * TILE_SIZE);
+
+        this.createTextures();
+        this.buildLevel();
+        this.spawnPlayer();
+
+        this.cameras.main.setBounds(0, 0, cols * TILE_SIZE, height * TILE_SIZE);
+        this.cameras.main.startFollow(this.player, true, 0.15, 0.15);
+
+        this.physics.add.collider(this.player, this.platforms);
+        this.physics.add.collider(this.goombas, this.platforms);
+        this.physics.add.collider(this.goombas, this.goombas);
+        this.physics.add.overlap(this.player, this.goombas, this.handleEnemyCollision, undefined, this);
+        this.physics.add.overlap(this.player, this.flagPole, this.handleWin, undefined, this);
+
+        this.time.addEvent({
+            delay: 1000,
+            loop: true,
+            callback: () => {
+                if (gameState !== 'PLAYING') return;
+                timeLeft -= 1;
+                if (timeLeft <= 0) {
+                    this.handleDeath('time ran out');
+                }
+                updateHUD();
+            }
+        });
+
+        gameState = 'PLAYING';
     }
 
     update() {
-        if (this.dead) {
-            this.y += this.vy;
-            this.vy += GRAVITY;
-            return;
-        }
+        if (gameState !== 'PLAYING') return;
+        const body = this.player.body;
+        const onGround = body.blocked.down;
 
-        if (this.winAnim) {
-            this.x += 2;
-            this.animTimer++;
-            return;
-        }
-
-        // Movement
-        if (keys.right) {
-            if (this.vx < MAX_SPEED) this.vx += ACCEL;
-            this.facingRight = true;
-            this.animTimer++;
-        } else if (keys.left) {
-            if (this.vx > -MAX_SPEED) this.vx -= ACCEL;
-            this.facingRight = false;
-            this.animTimer++;
+        if (this.cursors.left.isDown || keyState.left) {
+            body.setVelocityX(-MOVE_SPEED);
+        } else if (this.cursors.right.isDown || keyState.right) {
+            body.setVelocityX(MOVE_SPEED);
         } else {
-            this.vx *= FRICTION;
-            if (Math.abs(this.vx) < 0.1) this.vx = 0;
-            this.animTimer = 0;
+            body.setVelocityX(0);
         }
 
-        // Jump Initiation (Consume the press event)
-        if (keys.jumpPressed && this.grounded) {
-            this.vy = JUMP_FORCE;
-            this.grounded = false;
-            keys.jumpPressed = false; // Consumed
-            Sound.play('jump');
+        const jumpPressed = this.cursors.up.isDown || this.cursors.space?.isDown || keyState.jump;
+        if (jumpPressed && onGround && !this.jumpHeld) {
+            body.setVelocityY(JUMP_SPEED);
+            this.jumpHeld = true;
+        }
+        if (!jumpPressed) {
+            this.jumpHeld = false;
         }
 
-        // Variable Jump Height: Cut velocity if button released early
-        if (this.vy < -5 && !keys.up) {
-            this.vy *= 0.5;
-        }
-
-        // Apply Gravity
-        this.vy += GRAVITY;
-
-        // Apply Velocity
-        this.x += this.vx;
-        this.checkCollisionX();
-
-        this.y += this.vy;
-        this.grounded = false; 
-        this.checkCollisionY();
-
-        // Screen Boundary
-        if (this.x < cameraX) {
-            this.x = cameraX;
-            this.vx = 0;
-        }
-
-        // Pitfall
-        if (this.y > canvas.height) {
-            this.die("falling in a pit");
-        }
+        this.goombas.children.iterate(goomba => {
+            if (!goomba || !goomba.body) return;
+            if (goomba.body.blocked.left) {
+                goomba.body.setVelocityX(50);
+            } else if (goomba.body.blocked.right) {
+                goomba.body.setVelocityX(-50);
+            }
+        });
     }
 
-    checkCollisionX() {
-        let startX = Math.floor(this.x / TILE_SIZE);
-        let endX = Math.floor((this.x + this.w) / TILE_SIZE);
-        let startY = Math.floor(this.y / TILE_SIZE);
-        let endY = Math.floor((this.y + this.h - 1) / TILE_SIZE);
+    createTextures() {
+        const createSolid = (key, color) => {
+            const g = this.make.graphics({ x: 0, y: 0, add: false });
+            g.fillStyle(color, 1);
+            g.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+            g.generateTexture(key, TILE_SIZE, TILE_SIZE);
+            g.destroy();
+        };
 
-        for (let y = startY; y <= endY; y++) {
-            for (let x = startX; x <= endX; x++) {
-                let tile = getTile(x, y);
-                if (isSolid(tile)) {
-                    if (this.vx > 0) {
-                        this.x = x * TILE_SIZE - this.w - 0.1;
-                        this.vx = 0;
-                    } else if (this.vx < 0) {
-                        this.x = (x + 1) * TILE_SIZE + 0.1;
-                        this.vx = 0;
-                    }
-                } else if (tile === 'F' || tile === 'f') { 
-                    winGame();
+        createSolid('ground', 0x8B4513);
+        createSolid('brick', 0xC45A24);
+        createSolid('question', 0xE6B800);
+        createSolid('stone', 0x6D6D6D);
+        createSolid('pipe', 0x2E8B57);
+        createSolid('flag', 0xFFFFFF);
+        createSolid('playerTex', 0xCD853F);
+        createSolid('goombaTex', 0x7B3F00);
+    }
+
+    buildLevel() {
+        this.levelRows.forEach((row, y) => {
+            [...row].forEach((char, x) => {
+                const worldX = x * TILE_SIZE + TILE_SIZE / 2;
+                const worldY = y * TILE_SIZE + TILE_SIZE / 2;
+
+                if (char === 'G' || char === 'B' || char === 'Q' || char === 'S') {
+                    const tex = char === 'G' ? 'ground' : char === 'B' ? 'brick' : char === 'Q' ? 'question' : 'stone';
+                    const block = this.add.sprite(worldX, worldY, tex);
+                    this.physics.add.existing(block, true);
+                    this.platforms.add(block);
+                } else if (['l','r','L','R'].includes(char)) {
+                    const pipe = this.add.sprite(worldX, worldY, 'pipe');
+                    this.physics.add.existing(pipe, true);
+                    this.platforms.add(pipe);
+                } else if (char === 'f' || char === 'F') {
+                    const flagPiece = this.add.sprite(worldX, worldY, 'flag');
+                    this.physics.add.existing(flagPiece, true);
+                    this.flagPole.add(flagPiece);
+                } else if (char === 'e') {
+                    const enemy = this.add.sprite(worldX, worldY, 'goombaTex');
+                    this.physics.add.existing(enemy);
+                    enemy.body.setCollideWorldBounds(true);
+                    enemy.body.setBounce(1, 0);
+                    enemy.body.setVelocityX(-50);
+                    this.goombas.add(enemy);
                 }
+            });
+        });
+    }
+
+    spawnPlayer() {
+        const safeCol = 2;
+        let spawnY = TILE_SIZE * 4;
+        for (let y = this.levelRows.length - 1; y >= 0; y--) {
+            const char = this.levelRows[y][safeCol] || '.';
+            if (char !== '.') {
+                spawnY = y * TILE_SIZE - TILE_SIZE;
+                break;
             }
+        }
+
+        this.player = this.add.sprite(TILE_SIZE * safeCol + TILE_SIZE, spawnY, 'playerTex');
+        this.physics.add.existing(this.player);
+        this.player.body.setCollideWorldBounds(true);
+        this.player.body.setSize(TILE_SIZE - 6, TILE_SIZE - 4);
+        this.player.body.setOffset(3, 2);
+    }
+
+    handleEnemyCollision(player, goomba) {
+        if (!player.body || !goomba.body) return;
+        if (player.body.velocity.y > 50) {
+            goomba.disableBody(true, true);
+            score += 100;
+            player.body.setVelocityY(JUMP_SPEED * 0.5);
+            updateHUD();
+        } else {
+            this.handleDeath('a Goomba');
         }
     }
 
-    checkCollisionY() {
-        let startX = Math.floor(this.x / TILE_SIZE);
-        let endX = Math.floor((this.x + this.w) / TILE_SIZE);
-        let startY = Math.floor(this.y / TILE_SIZE);
-        let endY = Math.floor((this.y + this.h) / TILE_SIZE);
-
-        for (let y = startY; y <= endY; y++) {
-            for (let x = startX; x <= endX; x++) {
-                let tile = getTile(x, y);
-                if (isSolid(tile)) {
-                    if (this.vy > 0) {
-                        this.y = y * TILE_SIZE - this.h;
-                        this.vy = 0;
-                        this.grounded = true;
-                    } else if (this.vy < 0) {
-                        this.y = (y + 1) * TILE_SIZE;
-                        this.vy = 0;
-                        interactWithBlock(x, y, tile);
-                    }
-                }
-            }
-        }
+    handleDeath(reason) {
+        if (gameState !== 'PLAYING') return;
+        gameState = 'GAME_OVER';
+        this.physics.pause();
+        showOverlay('GAME OVER', `You were defeated by ${reason}.`, 'die', score);
     }
 
-    die(cause) {
-        if (this.dead) return;
-        this.dead = true;
-        this.vy = -15; 
-        Sound.play('die');
-        showGameOver(cause);
-    }
-
-    draw() {
-        ctx.save();
-        let drawX = Math.floor(this.x);
-        let drawY = Math.floor(this.y);
-        
-        if (!this.facingRight) {
-            ctx.translate(drawX + this.w, drawY);
-            ctx.scale(-1, 1);
-            drawX = 0;
-            drawY = 0;
-        } else {
-            ctx.translate(drawX, drawY);
-            drawX = 0;
-            drawY = 0;
-        }
-
-        const cSkin = '#fca048';
-        const cHat = '#E70012'; 
-        const cOveralls = '#3e39ac'; 
-
-        // Hat
-        ctx.fillStyle = cHat;
-        ctx.fillRect(0, 0, this.w, this.h * 0.3);
-        ctx.fillRect(this.w * 0.2, this.h * 0.3, this.w * 0.9, this.h * 0.1); 
-
-        // Face
-        ctx.fillStyle = cSkin;
-        ctx.fillRect(this.w * 0.2, this.h * 0.3, this.w * 0.6, this.h * 0.3);
-        
-        // Mustache
-        ctx.fillStyle = 'black';
-        ctx.fillRect(this.w * 0.6, this.h * 0.5, this.w * 0.3, this.h * 0.1);
-        ctx.fillStyle = 'black'; 
-        ctx.fillRect(this.w * 0.6, this.h * 0.35, 4, 4);
-
-        // Body
-        ctx.fillStyle = cOveralls;
-        ctx.fillRect(this.w * 0.2, this.h * 0.6, this.w * 0.6, this.h * 0.3);
-        
-        // Arms
-        ctx.fillStyle = cHat;
-        if (!this.grounded) {
-            ctx.fillRect(this.w * 0.8, this.h * 0.5, this.w * 0.2, this.h * 0.3); 
-        } else if (Math.abs(this.vx) > 1) {
-            if (Math.floor(this.animTimer / 5) % 2 === 0) {
-                ctx.fillRect(-2, this.h * 0.6, this.w * 0.3, this.h * 0.2); 
-            } else {
-                ctx.fillRect(this.w * 0.8, this.h * 0.6, this.w * 0.3, this.h * 0.2); 
-            }
-        } else {
-            ctx.fillRect(0, this.h * 0.6, this.w * 0.2, this.h * 0.3); 
-        }
-        
-        // Boots
-        ctx.fillStyle = '#6b2d00';
-        if (!this.grounded) {
-             ctx.fillRect(this.w * 0.1, this.h * 0.8, this.w * 0.4, this.h * 0.2);
-        } else {
-            ctx.fillRect(this.w * 0.1, this.h * 0.9, this.w * 0.3, this.h * 0.1);
-            ctx.fillRect(this.w * 0.6, this.h * 0.9, this.w * 0.3, this.h * 0.1);
-        }
-
-        ctx.restore();
+    handleWin() {
+        if (gameState !== 'PLAYING') return;
+        gameState = 'WIN';
+        this.physics.pause();
+        showOverlay('LEVEL COMPLETE', 'Nice job! You reached the flag.', 'win', score);
     }
 }
 
-class Goomba {
-    constructor(x, y) {
-        this.w = TILE_SIZE;
-        this.h = TILE_SIZE;
-        this.x = x * TILE_SIZE;
-        this.y = y * TILE_SIZE;
-        this.vx = -1.5;
-        this.vy = 0;
-        this.dead = false;
-        this.deadTimer = 0;
-        this.animTimer = 0;
-    }
-
-    update() {
-        if (this.dead) {
-            this.deadTimer++;
-            return;
-        }
-        
-        if (this.x > cameraX + canvas.width + TILE_SIZE) return;
-        if (this.x < cameraX - TILE_SIZE * 2) return; 
-
-        this.vy += GRAVITY;
-        this.x += this.vx;
-        
-        // Collision X
-        let startX = Math.floor(this.x / TILE_SIZE);
-        let endX = Math.floor((this.x + this.w) / TILE_SIZE);
-        let tileY = Math.floor((this.y + this.h - 5) / TILE_SIZE); 
-
-        if (isSolid(getTile(startX, tileY)) && this.vx < 0) {
-            this.x = (startX + 1) * TILE_SIZE;
-            this.vx = -this.vx;
-        } else if (isSolid(getTile(endX, tileY)) && this.vx > 0) {
-            this.x = endX * TILE_SIZE - this.w;
-            this.vx = -this.vx;
-        }
-
-        this.y += this.vy;
-        
-        // Collision Y
-        let bottomY = Math.floor((this.y + this.h) / TILE_SIZE);
-        let centerX = Math.floor((this.x + this.w/2) / TILE_SIZE);
-        
-        if (isSolid(getTile(centerX, bottomY))) {
-            this.y = bottomY * TILE_SIZE - this.h;
-            this.vy = 0;
-        } else if (this.y > canvas.height) {
-            this.dead = true;
-            this.deadTimer = 100;
-        }
-        
-        this.animTimer++;
-
-        // Player Collision
-        if (!player.dead && !player.winAnim) {
-            if (
-                player.x < this.x + this.w &&
-                player.x + player.w > this.x &&
-                player.y < this.y + this.h &&
-                player.y + player.h > this.y
-            ) {
-                if (player.vy > 0 && player.y + player.h < this.y + this.h * 0.5) {
-                    this.dead = true;
-                    player.vy = BOUNCE_FORCE;
-                    score += 100;
-                    Sound.play('stomp');
-                    createParticle(this.x, this.y, '100');
-                } else {
-                    player.die("touching a Goomba");
-                }
+function bootGame() {
+    const config = {
+        type: Phaser.AUTO,
+        parent: 'game-container',
+        canvas: document.getElementById('gameCanvas'),
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: '#5c94fc',
+        physics: {
+            default: 'arcade',
+            arcade: {
+                gravity: { y: GRAVITY_Y },
+                debug: false
             }
-        }
-    }
+        },
+        scene: [MainScene]
+    };
 
-    draw() {
-        if (this.deadTimer > 30) return; 
+    phaserGame = new Phaser.Game(config);
 
-        let drawX = Math.floor(this.x);
-        let drawY = Math.floor(this.y);
-
-        if (this.dead) {
-            ctx.fillStyle = '#8B4513';
-            ctx.fillRect(drawX + 4, drawY + 16, 24, 16);
-            return;
-        }
-
-        ctx.fillStyle = '#8B4513'; 
-        ctx.beginPath();
-        ctx.moveTo(drawX, drawY + this.h);
-        ctx.lineTo(drawX + 4, drawY + 4);
-        ctx.lineTo(drawX + this.w - 4, drawY + 4);
-        ctx.lineTo(drawX + this.w, drawY + this.h);
-        ctx.fill();
-
-        ctx.fillStyle = '#CD853F';
-        ctx.fillRect(drawX + 8, drawY + 16, 16, 16);
-
-        ctx.fillStyle = 'white';
-        ctx.fillRect(drawX + 6, drawY + 10, 8, 8);
-        ctx.fillRect(drawX + 18, drawY + 10, 8, 8);
-        ctx.fillStyle = 'black';
-        ctx.fillRect(drawX + 8, drawY + 12, 2, 4);
-        ctx.fillRect(drawX + 20, drawY + 12, 2, 4);
-
-        ctx.fillStyle = 'black';
-        if (Math.floor(this.animTimer / 10) % 2 === 0) {
-            ctx.fillRect(drawX, drawY + 26, 10, 6);
-            ctx.fillRect(drawX + 20, drawY + 24, 10, 6);
-        } else {
-            ctx.fillRect(drawX, drawY + 24, 10, 6);
-            ctx.fillRect(drawX + 20, drawY + 26, 10, 6);
-        }
-    }
+    window.addEventListener('resize', () => {
+        phaserGame.scale.resize(window.innerWidth, window.innerHeight);
+    });
 }
 
-// --- LEVEL DATA ---
+async function startGame(useAI) {
+    const promptInput = document.getElementById('ai-prompt');
+    const startScreen = document.getElementById('start-screen');
+    startScreen.style.display = 'none';
+    score = 0;
+    timeLeft = 400;
+    updateHUD();
 
-const CLASSIC_LEVEL = `
-....................................................................................................................................................................................................................................F.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-....................................................................................................................................................................................................................................f.....
-..............................Q......................................Q.Q.Q................Q.................................................................................................................................S.......f.....
-..............................B......................................B.B.B................B................................................................................................................................SS.......f.....
-............................QB.BQ...................................BB.B.BB.............................................................................SSS...............................................................SSS.......f.....
-.......................................................................................................................................................SSSS..............................................................SSSS.......f.....
-.........................................e.................................e........e.............................e...........e...e...................SSSSS.............................................................SSSSS.......f.....
-.....................................................................................................................................................SSSSSS............................................................SSSSSS.......f.....
-........................................lr........................lr..........................lr....................................................SSSSSSS...........................................................SSSSSSS.......f.....
-........................................LR........................LR..........................LR...................................................SSSSSSSS..........................................................SSSSSSSS.......f.....
-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..........................................................GGGGGGGGGGGGGGGGGGGGG
-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG..........................................................GGGGGGGGGGGGGGGGGGGGG
-`;
-
-let map = [];
-let enemies = [];
-let particles = [];
-
-function parseLevel() {
-    // Safety check for empty or invalid strings, fallback to classic
-    if (!currentLevelString || currentLevelString.length < 100) {
+    if (useAI) {
+        const theme = promptInput.value || 'A classic level with pipes and bricks';
+        const level = await generateAILevel(theme);
+        currentLevelString = level || CLASSIC_LEVEL;
+    } else {
         currentLevelString = CLASSIC_LEVEL;
     }
 
-    const rows = currentLevelString.trim().split('\n');
-    map = [];
-    enemies = [];
-    
-    // Ensure we have something to parse
-    if (rows.length === 0) return;
-
-    const cols = rows[0].length;
-    const height = rows.length;
-
-    for (let y = 0; y < height; y++) {
-        map[y] = [];
-        for (let x = 0; x < cols; x++) {
-            let char = rows[y] ? rows[y][x] : '.'; // Safe access
-            if (!char) char = '.';
-
-            if (char === 'e') {
-                enemies.push(new Goomba(x, y));
-                map[y][x] = '.'; 
-            } else {
-                map[y][x] = char;
-            }
-        }
+    if (!phaserGame) {
+        bootGame();
+        phaserGame.events.once(Phaser.Core.Events.READY, () => phaserGame.scene.start('MainScene', { levelString: currentLevelString }));
+    } else {
+        phaserGame.scene.start('MainScene', { levelString: currentLevelString });
     }
-}
-
-function getTile(x, y) {
-    if (y < 0 || y >= map.length) return '.';
-    if (x < 0 || x >= map[0].length) return 'G'; 
-    return map[y][x];
-}
-
-function setTile(x, y, val) {
-    if (y >= 0 && y < map.length && x >= 0 && x < map[0].length) {
-        map[y][x] = val;
-    }
-}
-
-function isSolid(tile) {
-    return ['G', 'B', 'Q', 'U', 'S', 'l', 'r', 'L', 'R'].includes(tile);
-}
-
-function interactWithBlock(x, y, tile) {
-    if (tile === 'B') {
-        setTile(x, y, '.');
-        Sound.play('jump'); 
-        createParticle(x * TILE_SIZE, y * TILE_SIZE, 'brick');
-    } else if (tile === 'Q') {
-        setTile(x, y, 'U');
-        score += 200;
-        Sound.play('coin');
-        createParticle(x * TILE_SIZE, (y-1) * TILE_SIZE, 'coin');
-    }
-}
-
-function createParticle(x, y, type) {
-    particles.push({x, y, type, life: 30, vy: -5});
-}
-
-// --- RENDERER ---
-
-function drawTile(x, y, type) {
-    let px = x * TILE_SIZE;
-    let py = y * TILE_SIZE;
-
-    if (type === '.') return;
-
-    if (type === 'G') {
-        ctx.fillStyle = '#c84c0c'; 
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#fca048';
-        ctx.fillRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8); 
-    } else if (type === 'B') {
-        ctx.fillStyle = '#b33800';
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.beginPath();
-        ctx.moveTo(px, py + TILE_SIZE/2);
-        ctx.lineTo(px + TILE_SIZE, py + TILE_SIZE/2);
-        ctx.moveTo(px + TILE_SIZE/2, py);
-        ctx.lineTo(px + TILE_SIZE/2, py + TILE_SIZE/2);
-        ctx.moveTo(px + TILE_SIZE/4, py + TILE_SIZE/2);
-        ctx.lineTo(px + TILE_SIZE/4, py + TILE_SIZE);
-        ctx.stroke();
-    } else if (type === 'Q') {
-        ctx.fillStyle = '#fca048';
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#b33800'; 
-        ctx.fillRect(px, py, 4, 4);
-        ctx.fillRect(px + TILE_SIZE-4, py, 4, 4);
-        ctx.fillRect(px, py + TILE_SIZE-4, 4, 4);
-        ctx.fillRect(px + TILE_SIZE-4, py + TILE_SIZE-4, 4, 4);
-        ctx.fillStyle = '#b33800';
-        ctx.font = 'bold 24px monospace';
-        ctx.fillText('?', px + 8, py + 24);
-    } else if (type === 'U') {
-        ctx.fillStyle = '#7e5845';
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.strokeStyle = 'black';
-        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-    } else if (type === 'S') {
-        ctx.fillStyle = '#b33800';
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.strokeStyle = 'black';
-        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-    } else if (['l', 'r', 'L', 'R'].includes(type)) {
-        ctx.fillStyle = '#00a800'; 
-        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#80d010'; 
-        ctx.fillRect(px + 4, py, 4, TILE_SIZE);
-        ctx.strokeStyle = '#005000';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-        if (type === 'l' || type === 'r') {
-            ctx.fillStyle = 'black';
-            ctx.fillRect(px, py+TILE_SIZE-2, TILE_SIZE, 2);
-        }
-    } else if (type === 'F' || type === 'f') {
-        if (type === 'F') {
-            ctx.fillStyle = '#00a800';
-            ctx.beginPath();
-            ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2, 8, 0, Math.PI*2);
-            ctx.fill();
-        }
-        ctx.fillStyle = '#00a800'; 
-        ctx.fillRect(px + TILE_SIZE/2 - 2, type === 'F' ? py + TILE_SIZE/2 : py, 4, TILE_SIZE);
-        if (type === 'F') {
-            ctx.fillStyle = 'white';
-            ctx.fillRect(px - TILE_SIZE/2, py + TILE_SIZE/2, TILE_SIZE, TILE_SIZE/2);
-            ctx.fillStyle = 'red'; 
-             ctx.beginPath();
-             ctx.arc(px, py + TILE_SIZE*0.75, 6, 0, Math.PI*2);
-             ctx.fill();
-        }
-    }
-}
-
-function drawParticles() {
-    for (let i = particles.length - 1; i >= 0; i--) {
-        let p = particles[i];
-        p.y += p.vy;
-        p.vy += GRAVITY;
-        p.life--;
-
-        if (p.type === 'brick') {
-            ctx.fillStyle = '#b33800';
-            ctx.fillRect(p.x, p.y, 8, 8);
-            ctx.fillRect(p.x + 10, p.y - 5, 8, 8);
-        } else if (p.type === 'coin') {
-            ctx.fillStyle = '#FFD700';
-            ctx.font = '16px monospace';
-            ctx.fillText("200", p.x, p.y);
-        } else if (p.type === '100') {
-            ctx.fillStyle = 'white';
-            ctx.font = '12px monospace';
-            ctx.fillText("100", p.x, p.y);
-        }
-
-        if (p.life <= 0) particles.splice(i, 1);
-    }
-}
-
-// --- MAIN LOOP ---
-
-let player;
-
-function init() {
-    resize();
-    window.addEventListener('resize', resize);
-    
-    parseLevel();
-    player = new Player();
-    
+    document.getElementById('msg-overlay').style.display = 'none';
     gameState = 'PLAYING';
-    score = 0;
-    timeLeft = 400;
-    
-    lastTime = performance.now();
-    requestAnimationFrame(loop);
-    
-    // Start timer
-    setInterval(() => {
-        if (gameState === 'PLAYING' && timeLeft > 0) timeLeft--;
-    }, 1000);
-}
-
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-
-function resetGame() {
-    // Just respawn the player and reset timer/camera, don't re-parse level (keep AI level)
-    // Actually, re-parsing resets blocks which is good.
-    parseLevel(); 
-    player = new Player();
-    cameraX = 0;
-    gameState = 'PLAYING';
-    timeLeft = 400;
 }
 
 function resetToMenu() {
     document.getElementById('msg-overlay').style.display = 'none';
     document.getElementById('start-screen').style.display = 'flex';
+    if (phaserGame) {
+        phaserGame.scene.stop('MainScene');
+    }
     gameState = 'START';
 }
 
-function winGame() {
-    if (player.winAnim) return;
-    player.winAnim = true;
-    player.vx = 0;
-    player.vy = 0;
-    Sound.play('coin'); 
-    
-    setTimeout(() => {
-        showWinScreen();
-    }, 2000);
-}
-
-// --- GEMINI UI HANDLERS ---
-
-async function showGameOver(cause) {
+async function showOverlay(title, message, type, context) {
     const overlay = document.getElementById('msg-overlay');
-    const title = document.getElementById('msg-title');
-    const text = document.getElementById('msg-text');
+    const msgTitle = document.getElementById('msg-title');
+    const msgText = document.getElementById('msg-text');
     const loader = document.getElementById('msg-loader');
 
+    msgTitle.textContent = title;
+    msgText.textContent = message;
     overlay.style.display = 'flex';
-    title.innerText = "GAME OVER";
-    title.style.color = "red";
-    text.innerText = "Consulting AI Narrator...";
-    loader.style.display = 'block';
 
-    const comment = await generateNarratorComment('die', cause);
-    
-    loader.style.display = 'none';
-    text.innerText = comment || "Game Over! Try again.";
-}
-
-async function showWinScreen() {
-    const overlay = document.getElementById('msg-overlay');
-    const title = document.getElementById('msg-title');
-    const text = document.getElementById('msg-text');
-    const loader = document.getElementById('msg-loader');
-
-    overlay.style.display = 'flex';
-    title.innerText = "COURSE CLEAR!";
-    title.style.color = "#00a800";
-    text.innerText = "Consulting AI Narrator...";
-    loader.style.display = 'block';
-
-    const comment = await generateNarratorComment('win', score);
-    
-    loader.style.display = 'none';
-    text.innerText = comment || `Great job! Score: ${score}`;
-}
-
-
-function loop(timestamp) {
-    let deltaTime = (timestamp - lastTime) / 1000;
-    lastTime = timestamp;
-    
-    if (deltaTime > 0.1) deltaTime = 0.1;
-
-    accumulator += deltaTime;
-
-    ctx.fillStyle = '#5c94fc';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (gameState === 'START') {
-        requestAnimationFrame(loop);
-        return;
-    }
-
-    while (accumulator >= STEP) {
-        updateGame();
-        accumulator -= STEP;
-    }
-
-    drawGame();
-    requestAnimationFrame(loop);
-}
-
-function updateGame() {
-    if (gameState === 'PLAYING') {
-        if (!player.dead) {
-            let targetCamX = player.x - canvas.width / 3;
-            if (targetCamX < 0) targetCamX = 0;
-            if (targetCamX > map[0].length * TILE_SIZE - canvas.width) targetCamX = map[0].length * TILE_SIZE - canvas.width;
-            
-            let camDiff = targetCamX - cameraX;
-            if (camDiff > 0) cameraX += camDiff * 0.1; 
-        }
-
-        player.update();
-        enemies.forEach(e => e.update());
-        
-        // Reset "Just Pressed" flags after update frame
-        keys.jumpPressed = false;
+    if (apiKey) {
+        loader.style.display = 'block';
+        const aiText = await generateNarratorComment(type, context);
+        loader.style.display = 'none';
+        if (aiText) msgText.textContent = aiText;
     }
 }
 
-function drawGame() {
-    ctx.save();
-    ctx.translate(-Math.floor(cameraX), 0);
+function setupTouchControls() {
+    const addHoldListeners = (element, flag) => {
+        element.addEventListener('touchstart', () => { keyState[flag] = true; });
+        element.addEventListener('touchend', () => { keyState[flag] = false; });
+        element.addEventListener('mousedown', () => { keyState[flag] = true; });
+        element.addEventListener('mouseup', () => { keyState[flag] = false; });
+        element.addEventListener('mouseleave', () => { keyState[flag] = false; });
+    };
 
-    let startCol = Math.floor(cameraX / TILE_SIZE);
-    let endCol = startCol + Math.ceil(canvas.width / TILE_SIZE) + 1;
-
-    for (let y = 0; y < map.length; y++) {
-        for (let x = startCol; x <= endCol; x++) {
-             drawTile(x, y, getTile(x, y));
-        }
-    }
-
-    enemies.forEach(e => e.draw());
-    player.draw();
-    drawParticles();
-
-    ctx.restore();
-
-    document.getElementById('scoreVal').innerText = score.toString().padStart(6, '0');
-    document.getElementById('timeVal').innerText = timeLeft;
+    addHoldListeners(document.getElementById('btn-left'), 'left');
+    addHoldListeners(document.getElementById('btn-right'), 'right');
+    addHoldListeners(document.getElementById('btn-jump'), 'jump');
 }
 
-// --- INPUT HANDLING ---
-
-window.addEventListener('keydown', e => {
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
-    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
-        if (!keys.up) keys.jumpPressed = true; // Trigger jump frame
-        keys.up = true;
-    }
-});
-
-window.addEventListener('keyup', e => {
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
-    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
-        keys.up = false;
-    }
-});
-
-// Touch Controls
-const btnLeft = document.getElementById('btn-left');
-const btnRight = document.getElementById('btn-right');
-const btnJump = document.getElementById('btn-jump');
-
-const addTouch = (elem, key) => {
-    elem.addEventListener('touchstart', (e) => { 
-        e.preventDefault();
-        if (key === 'up' && !keys.up) keys.jumpPressed = true; // Trigger jump frame for touch
-        keys[key] = true; 
-    });
-    elem.addEventListener('touchend', (e) => { 
-        e.preventDefault(); 
-        keys[key] = false; 
-    });
-};
-
-addTouch(btnLeft, 'left');
-addTouch(btnRight, 'right');
-addTouch(btnJump, 'up');
-
-async function startGame(useAI) {
-    document.getElementById('start-screen').style.display = 'none';
-    
-    // Init Audio (user gesture required)
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        soundEnabled = true;
-    }
-
-    if (useAI) {
-        let prompt = document.getElementById('ai-prompt').value;
-        if (!prompt) prompt = "A balanced level with some jumps";
-        
-        // Show loading state again inside the function logic actually, 
-        // but easier to manage here since UI is still visible
-        document.getElementById('start-screen').style.display = 'flex'; // Keep open for loader
-        const generatedLevel = await generateAILevel(prompt);
-        if (generatedLevel) {
-            currentLevelString = generatedLevel;
-        } else {
-            currentLevelString = CLASSIC_LEVEL;
-        }
-    } else {
-        currentLevelString = CLASSIC_LEVEL;
-    }
-
-    // Hide Start Screen finally
-    document.getElementById('start-screen').style.display = 'none';
-    init();
-}
-
-// Initial resize to ensure canvas isn't blurry before start
-resize();
-
+setupTouchControls();
+updateHUD();
 </script>
 </body>
 </html>
